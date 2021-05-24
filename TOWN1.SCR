@@ -1,0 +1,1220 @@
+;#include "MYSTUFF.SCR"
+;#include "toolbox3.scr"
+
+Integer FALSE,TRUE
+FALSE = 0
+TRUE = 1
+;AlarmTime = 1
+
+Integer killcount,dungeonCount, recoveryDelay, needsKeys
+killcount = 0
+dungeonCount = 0
+recoveryDelay = 0
+needsKeys = TRUE
+
+Integer slowWalk
+slowWalk = 4
+
+Integer foundRoom
+foundRoom = 0
+
+String homePath
+homePath = ""
+String homeRoom
+homeRoom = ""
+String pathType, storedType
+Integer runHome
+runHome = FALSE
+
+Integer CRITICAL, SERIOUS, HURT, WOUNDED
+WOUNDED = 90
+HURT = 75
+SERIOUS = 65
+CRITICAL = 25
+
+
+Integer vital, maxVital, pVital
+Integer mana, maxMana, pMana, startExp, curExp
+String me
+String status
+Integer totDeposit
+totDeposit = 0
+startExp = 0
+curExp = 0
+
+;;;;;;;;;;;;;;;;;;;;;; Spells ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+String spells
+Integer MOTU,KAMOTU,GIMOTU,DOBUDANI                                ; Acolyte
+MOTU = FALSE
+KAMOTU = FALSE
+GIMOTU = FALSE
+DOBUDANI = FALSE
+
+Integer TEKA,DOBUZA,KAMAZA,KATEKA,GITEKA                         ; Necrolyte
+Integer cTEKA,cDOBUZA,cKAMAZA,cKATEKA,cGITEKA
+TEKA=FALSE
+cTEKA=0
+KATEKA=FALSE
+cKATEKA=0
+GITEKA=FALSE
+cGITEKA=0
+Integer advKill
+advKill = 0
+
+spells = "motu,kamotu,gimotu,dobudani,teka,dobuza,kamaza,kateka,giteka,"
+
+
+
+
+Integer roundCount                 ; Use a spell that you will have trouble recovering from
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Below Could Be Include File if I can figure out how;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; GetN s,n
+; function: get <n> characters into <s> from remote system or until CR
+;           is detected
+; remark:   This procedure can be used to wait for one character
+;           input by using  GetN ch,1
+;           CR is discarded
+;           BackSpace deletes the last character and the length of
+;           the string is recalcuated
+;
+Procedure GetN string s,integer n
+integer i
+string ch
+s = ""
+ch = ""
+i = 0
+While i<n and ch<>"^M"
+   repeat
+      GetCh ch
+   until success
+   concat s,ch
+   if ch="^H"           ; BackSpace is displayed to screen
+      if i=0
+         print " ",     ; move back the correct position
+      else
+         i = i-1;
+      endif
+   else
+      i = i+1
+   endif
+EndWhile
+EndProc
+
+PROCEDURE swap String x,y 
+  String temp
+  temp = x
+  x = y
+  y = temp
+ENDPROC
+
+PROCEDURE push String text, stack
+  String temp
+  temp = text
+  concat temp,","
+  swap stack, temp
+  concat stack, temp
+ENDPROC
+
+Procedure pop String text, stack
+  Integer pos,len
+  STRPOS stack,",",pos
+  SUBSTR stack,1,pos-1,text
+  LENGTH stack,len
+  SUBSTR stack,pos+1,len,stack
+EndProc
+
+
+; return number between current remote string buffer and parameter inCh
+PROCEDURE getNum Integer value, String inCh
+  String strValue,tempCh
+  value = 0
+  strValue = ""
+  REPEAT
+     getch tempCh
+     IF tempCh < "0123456789"
+        CONCAT strValue,tempCh
+     ENDIF
+  until tempCh=inCh
+  atoi strValue, value                                            ; converts String to Integer
+ENDPROC
+
+PROCEDURE trim String text
+  Integer pos,len, spaces, i
+  String temp
+  LENGTH text, len
+  spaces = 0
+  i = 1
+  Integer fFound, lFound,first,last,chFound                          ;first and last found
+  fFound = FALSE
+  lFound = FALSE
+  chFound = FALSE
+  first = 0
+  last = len
+  WHILE i <= len
+    SUBSTR text,i,1,temp                                       ;SUBSTR src,pos,count,dest
+    IF temp = " " AND NOT fFound
+      first = first + 1
+    ELSE
+      fFound = TRUE
+    ENDIF
+    IF temp <> " " and temp <> "^M"
+      last = i
+    ENDIF
+    i = i + 1
+  ENDWHILE
+  first = first + 1
+  last = last + 1
+  len = last - first
+  SUBSTR text, first, len, temp
+  text = temp
+ENDPROC
+
+
+PROCEDURE stats
+  PRINT "****************************************************"
+  PRINT "Player        : ", me
+  PRINT "Experience Inc: ", curExp - startExp
+  PRINT "Kill Count    : ",killcount
+  PRINT "Vital         : ", pVital
+  PRINT "Mana          : ", pMana
+  PRINT "Walk          : ", slowWalk
+  PRINT "Recovery      : ", recoveryDelay
+  PRINT "Total Deposit : ", totDeposit
+  IF TEKA
+    PRINT "TEKA          : ", cTEKA
+  ENDIF
+  IF KATEKA
+    PRINT "KATEKA        : ", cKATEKA
+    PRINT "Adv Kill      : ", advKill
+  ENDIF
+  IF GITEKA
+    PRINT "GITEKA        : ", cGITEKA
+    PRINT "Adv Kill      : ", advKill
+  ENDIF
+  
+  PRINT "****************************************************"
+ENDPROC
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Abobe Could Be Include File if I can figure out how;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+PROCEDURE getExits String exits
+  String tempCh
+  CLEAR COM
+  PUT "Exits"
+  WAITFOR "Exits: "
+  getch tempCh
+  WHILE tempCh <> "."
+    CONCAT exits,tempCh
+    getch tempCh
+  ENDWHILE
+  PRINT "EXITS: ",exits
+ENDPROC
+
+PROCEDURE Exhaustion Integer myDelay
+  stats
+  DELAY myDelay;
+  Integer failTimes
+  failTimes = 0
+  REPEAT
+    PUT "Group"
+    WAITFOR "Ready",1
+    SWITCH Found
+      CASE 1: failTimes = failTimes - 1
+              myDelay = myDelay - 1
+      otherwise: failTimes = failTimes + 1
+              Found = 0
+    ENDSWITCH
+  Until Found
+  myDelay = myDelay + (failTimes * 5);
+ENDPROC
+
+PROCEDURE moveTest 
+  Exhaustion recoveryDelay
+ENDPROC
+
+PROCEDURE ring
+    IF pVital > WOUNDED
+      PUT "Ring Gong"
+    ENDIF
+ENDPROC 
+
+PROCEDURE getAllFloor
+    PUT "get all"
+ENDPROC
+
+
+PROCEDURE getOut String message
+    PUT "X^M~X^M~X^M"
+    Alarm message
+    PRINT "Hanging Up In 10 Seconds!"
+    PRINT message
+    DELAY 100
+    Hangup
+    stats
+    Stop
+ENDPROC
+
+PROCEDURE soulCheck
+ ;PUT "use soul"
+ ;  WAITFOR "sorry, but","sorry, that",2 
+ ;   SWITCH found
+ ;    CASE 1: getOut "no soul"
+ ;            DELAY 10
+ ;    CASE 2: print "Woo Woo, soul still here."
+ ;   ENDSWITCH
+ENDPROC
+
+PROCEDURE readExp Integer exp
+  CLEAR COM
+  PUT "Experience"
+  WAITFOR "Experience:",1
+  getnum exp, "^M"
+ENDPROC
+
+PROCEDURE readHealth
+  vital = 0
+  maxVital = 0
+  pVital = 0
+  mana = 0
+  maxMana = 0
+  pMana = 100  
+  CLEAR COM
+  PUT "Health"
+  WAITFOR "Mana:",1
+  getnum mana, "/"
+  getnum maxMana, "^M"
+  
+  WAITFOR "Vitality",1
+  getnum vital, "/"
+  getnum maxVital, "^M"
+  IF maxVital = 0
+    readHealth
+  ENDIF
+
+  pVital = vital * 100 / maxVital
+  IF pVital < 25
+    PUT "Drink Anemone"
+    getOut "About to Die"
+  ENDIF
+
+  IF maxMana <> 0
+    pMana = mana * 100 / maxMana
+  ENDIF  
+
+  WAITFOR "Healthy","Hungry","Thirsty","Poisoned",1
+  SWITCH Found
+    CASE 1 : status = "HEALTHY"
+    CASE 2 : status = "HUNGRY"
+    CASE 3 : status = "THIRSTY"
+    CASE 4 : status = "POISONED"
+  ENDSWITCH
+ENDPROC
+
+PROCEDURE healSpell
+  IF NOT MOTU AND NOT KAMOTU AND NOT GIMOTU
+    return
+  ENDIF
+  readHealth
+  IF status = "POISONED" AND DOBUDANI
+    PUT "CASE DOBUDANI ", me
+  ELSEIF maxVital - vital >= 32 AND GIMOTU AND mana >= 3
+    DELAY 5
+    PUT "CAST GIMOTU ", me
+  ELSEIF maxVital - vital >= 16 AND KAMOTU AND mana >= 2
+    DELAY 5
+    PUT "CAST KAMOTU ", me
+  ELSEIF (maxVital - vital >= 8 OR pVital < WOUNDED) AND MOTU
+    DELAY 5
+    PUT "CAST MOTU ", me
+  ENDIF
+ENDPROC
+
+PROCEDURE spellResults Integer results
+  WAITFOR "falls to the ground lifeless!","You discharged the spell","Sorry, you don't see","You confuse the key syllables","Your spell was negated",1
+  SWITCH Found
+    CASE 1  : killcount=killcount+1
+              results = 1
+    CASE 2  : results = 1
+    CASE 3  : results = 0
+    CASE 4,5: results = -1
+  ENDSWITCH
+ENDPROC
+
+PROCEDURE hitSpells String monster
+  ;FYI: Calculating the Cast-Every-Round-Level (ERL) for Spells
+  ; ERL = (manaToCast - 1) * 5
+  Integer level, results  
+  level  = maxMana / 2  
+  results = 0
+  IF GITEKA AND mana >= 5 and (level >= 20 or pVital > HURT and (level >= 20 OR roundCount > 2))
+    DELAY 5
+    PUT "CAST giteka", monster
+    spellResults results
+    IF level < 20 and results <> 0
+      PRINT "Swing for the fences little guy, hope you killed it!"
+      DELAY 150
+      IF results = 1
+        advKill = advKill + 1
+      ENDIF      
+    ENDIF
+    cGITEKA = cGITEKA + results
+  ELSEIF KATEKA AND mana >= 3 and (level >= 10 or pVital > HURT and (level >= 10 OR roundCount > 2))
+    DELAY 5
+    PUT "CAST kateka", monster
+  ELSEIF TEKA
+    DELAY 5
+    PUT "CAST teka ", monster
+    spellResults results
+    cTEKA = cTEKA + results
+  ENDIF
+ENDPROC
+
+PROCEDURE attack String monster  
+  PUT "a ", monster
+  WAITFOR "falls to the ground lifeless!","Your attack","previous activities",1
+  SWITCH Found
+    CASE 1: PRINT "Dead!"
+            killcount=killcount+1
+    CASE 2: attack monster
+    CASE 3: roundCount = roundCount + 1
+            hitSpells monster
+            moveTest
+  ENDSWITCH
+ENDPROC
+
+
+
+PROCEDURE preAttack String monster,Integer attacked
+  attacked = FALSE
+  readHealth
+  IF pVital < SERIOUS 
+    runHome = true
+    return
+  ENDIF
+  attack monster
+  healSpell
+  attacked = TRUE
+ENDPROC
+
+;List of monsters you can kill
+String  m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12,m13,m14,m15,m16,m17,m18,m19,m20,m21,m22,m23,m24,m25,m26,m27,m28,m29,m30,m31,m32,m33,m34,m35,m36,m37,m38,m39,m40,m41,m42,m43,m44,m45,m46,m47,m48,m49,m50,m51,m52,m53,m54,m55,m56,m57,m58,m59
+m1  = " rat "
+m2  = " rats "
+m3  = " kobold"
+m4  = " orc"
+m5  = " imp"
+m6  = " bat"
+m7  = " hobgoblin"
+m8  = " warrior"
+m9  = " bear"
+m10 = " minotaur"
+m11 = " orge"
+m12 = " troll"
+m13 = " spider"
+m14 = " lion"
+m15 = " barbarian"
+m16 = " ram"
+m17 = " griffon"
+m18 = " ape"
+m19 = " ogre"
+m20 = " cyclop"
+m21 = " wol"
+m22 = " swords"
+m23 = " fox"
+m24 = " rabbit"
+m25 = " brigand"
+m26 = " satyr"
+m27 = " boar"
+m28 = " owl"
+m29 = " gnoll"
+m30 = " const"
+m31 = " centaur"
+m32 = " squirrel"
+m33 = " strangle"
+m34 = " bunny"
+m35 = " chimera"
+m36 = " giant"
+m37 = " skeleton"
+m38 = " gargoyle"
+m39 = " reaper"
+m40 = " ghoul"
+m41 = " alligator"
+m42 = " toad"
+m43 = " frog"
+m44 = " anaconda"
+m45 = " warlock"
+m46 = " zombie"
+m47 = " dragon"
+m48 = " affreet"
+m49 = " hydra"
+m50 = " nomad"
+m51 = " jackal"
+m52 = " carrion"
+m53 = " worm"
+m54 = " hyena"
+m55 = " lizard"
+m56 = " ~"
+m57 = " ~"
+m58 = " ~"
+m59 = " ~"
+
+Integer skipMana 
+skipMana = FALSE
+PROCEDURE monNoHealth
+  Integer attacked 
+  attacked = FALSE
+  WAITFOR m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,m12,m13,m14,m15,m16,m17,m18,m19,m20,m21,m22,m23,m24,m25,m26,m27,m28,m29,m30,m31,m32,m33,m34,m35,m36,m37,m38,m39,m40,m41,m42,m43,m44,m45,m46,m47,m48,m49,m50,m51,m52,m53,m54,m55,m56,m57,m58,m59," lying on the floor","There is nothing on the floor.",1
+  SWITCH Found
+    CASE 1  : preAttack m1 , attacked
+    CASE 2  : preAttack m2 , attacked
+    CASE 3  : preAttack m3 , attacked
+    CASE 4  : preAttack m4 , attacked
+    CASE 5  : preAttack m5 , attacked
+    CASE 6  : preAttack m6 , attacked
+    CASE 7  : preAttack m7 , attacked
+    CASE 8  : preAttack m8 , attacked
+    CASE 9  : preAttack m9 , attacked
+    CASE 10 : preAttack m10, attacked
+    CASE 11 : preAttack m11, attacked
+    CASE 12 : preAttack m12, attacked
+    CASE 13 : preAttack m13, attacked
+    CASE 14 : preAttack m14, attacked
+    CASE 15 : preAttack m15, attacked
+    CASE 16 : preAttack m16, attacked
+    CASE 17 : preAttack m17, attacked
+    CASE 18 : preAttack m18, attacked
+    CASE 19 : preAttack m19, attacked
+    CASE 20 : preAttack m20, attacked
+    CASE 21 : preAttack m21, attacked
+    CASE 22 : preAttack m22, attacked
+    CASE 23 : preAttack m23, attacked
+    CASE 24 : preAttack m24, attacked
+    CASE 25 : preAttack m25, attacked
+    CASE 26 : preAttack m26, attacked
+    CASE 27 : preAttack m27, attacked
+    CASE 28 : preAttack m28, attacked
+    CASE 29 : preAttack m29, attacked
+    CASE 30 : preAttack m30, attacked
+    CASE 31 : preAttack m31, attacked
+    CASE 32 : preAttack m32, attacked
+    CASE 33 : preAttack m33, attacked
+    CASE 34 : preAttack m34, attacked
+    CASE 35 : preAttack m35, attacked
+    CASE 36 : preAttack m36, attacked
+    CASE 37 : preAttack m37, attacked
+    CASE 38 : preAttack m38, attacked
+    CASE 39 : preAttack m39, attacked
+    CASE 40 : preAttack m40, attacked
+    CASE 41 : preAttack m41, attacked
+    CASE 42 : preAttack m42, attacked
+    CASE 43 : preAttack m43, attacked
+    CASE 44 : preAttack m44, attacked
+    CASE 45 : preAttack m45, attacked
+    CASE 46 : preAttack m46, attacked
+    CASE 47 : preAttack m47, attacked
+    CASE 48 : preAttack m48, attacked
+    CASE 49 : preAttack m49, attacked
+    CASE 50 : preAttack m50, attacked
+    CASE 51 : preAttack m51, attacked
+    CASE 52 : preAttack m52, attacked
+    CASE 53 : preAttack m53, attacked
+    CASE 54 : preAttack m54, attacked
+    CASE 55 : preAttack m55, attacked
+    CASE 56 : preAttack m56, attacked
+    CASE 57 : preAttack m57, attacked
+    CASE 58 : preAttack m58, attacked
+    CASE 59 : preAttack m59, attacked
+    CASE 60 : getAllFloor
+    otherwise : IF pMana < 75 and status = "HEALTHY"
+                  IF skipMana
+                   skipMana = FALSE
+                    DELAY 5
+                    PRINT "Slow down..Get More Mana.."
+                    readHealth
+                    DELAY 50
+                    PUT
+                    monNoHealth
+                  ELSE
+                    skipMana = TRUE
+                  ENDIF
+                ENDIF
+                return
+  ENDSWITCH
+  IF attacked
+    PUT
+    monNoHealth
+  ENDIF
+ENDPROC
+
+PROCEDURE monTest
+  readHealth
+  IF pVital < WOUNDED
+    return
+  ENDIF
+  CLEAR COM
+  PUT
+  monNoHealth
+ENDPROC
+
+;------------------------------------------------------------------------------------------------------------------
+PROCEDURE reverseDirection String direction
+  SWITCH direction
+    CASE "n" : direction = "s"
+    CASE "s" : direction = "n"
+    CASE "e" : direction = "w"
+    CASE "w" : direction = "e"
+    CASE "ne": direction = "sw"
+    CASE "se": direction = "nw"
+    CASE "sw": direction = "ne"
+    CASE "nw": direction = "se"
+    CASE "u" : direction = "d"
+    CASE "d" : direction = "u"
+  ENDSWITCH
+ENDPROC
+
+PROCEDURE findRoom String c, d, place, Integer l
+  Integer level
+  String direction, commingFrom
+  level = l  
+  direction = d
+  commingFrom = c  
+  IF (foundRoom or level < 0)
+    return
+  ENDIF
+  IF (direction = "" and level <> 0)
+    level = level -1
+    DELAY 1
+    PRINT "Adding All Directions ", level
+    DELAY 10
+    String exits
+    getExits exits
+    PRINT "EXITS: ", exits
+    concat exits,","
+    DELAY 25
+    WHILE exits <> ""
+      String tempDir
+      pop tempDir, exits
+      print tempDir
+      String revDir
+        revDir = tempDir
+        reverseDirection revDir
+        print "exits:",exits," commingFrom:",commingFromm," revDir:",revDir
+      IF (commingFrom <> revDir)
+        findRoom commingFrom, tempDir, place, level
+      ENDIF
+    ENDWHILE
+    return; 
+  ENDIF
+
+  IF (direction = "") 
+    return;
+  ENDIF
+
+  ; Room may have same name you are looking for.
+  CLEAR COM
+  PUT
+  WAITFOR place,1
+  IF Found
+    foundRoom = 1
+  ENDIF
+
+  IF (foundRoom)
+    return
+  ENDIF
+  DELAY 2
+  CLEAR COM
+  PRINT "commingFrom => ", commingFrom," direction => ", direction, " place= ", place," at level=", level
+  monTest
+  moveTest
+  REPEAT
+    PUT direction
+    WAITFOR place, "fall!","You are still phsically","rest a while before"," dark","no exit", "prevents your exit",1
+    SWITCH Found
+        CASE 1 : PRINT "OMG! I found it!!!"
+                foundRoom = 1
+                return
+        CASE 2,3,4: DELAY 100
+                    PUT "get all"
+                    DELAY 50
+                    ;level = level + 1 ; try again
+                    ;findRoom c, direction, place, level
+        CASE 5:   getOut "I am lost in the Dark."
+                  return
+        CASE 6:   DELAY 1
+                  PRINT "End Of Line"
+                  return
+        otherwise:  DELAY 1
+                    findRoom direction, "", place, level
+                    IF not foundRoom
+                      PRINT "reverse!"
+                      String temp
+                      temp = direction
+                      reverseDirection temp
+                      DELAY 25
+                      PUT temp
+                    ENDIF
+                    return;
+        ENDSWITCH
+  UNTIL TRUE
+ENDPROC
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+; MOVING
+PROCEDURE mHomeTest String dir, place
+  
+  roundCount = 0            ; try on second attack round.
+  Integer oK, xIt
+  oK = 0
+  REPEAT
+    CLEAR COM
+    PUT dir
+    WAITFOR place, "fall!","You are still phsically","rest a while before"," dark","no exit", "door prevents your exit",1
+    SWITCH Found
+      CASE 1  : OK = 1
+                IF place <> "arena"
+                 monNoHealth
+                ENDIF
+                String r
+                r = dir
+                reverseDirection r
+                push r, homePath                             ; Storing for return Home
+                String tempPlace
+                SWITCH place                                 ; To save storage space because of String limit 512
+                  CASE "cave"     : tempPlace = "c"
+                  CASE "mountains": tempPlace = "m"
+                  CASE "forest"   : tempPlace =  "f"
+                  CASE "swamp"    : tempPlace =  "s"
+                  otherwise       : tempPlace = place 
+                ENDSWITCH
+                push tempPlace, homeRoom                     ; Storing for return Home
+                push pathType, storedType
+                healSpell
+                DELAY slowWalk
+      CASE 2  : getAllFloor
+                DELAY 10
+                slowWalk = slowWalk + 1
+                oK = 0
+      CASE 3,4: readHealth
+                DELAY 25
+                oK = 0
+      CASE 5 :  xIt = 5 ;forgot glowstone
+      CASE 6 :  xIt = 5
+                findRoom "","", place,7
+                IF foundRoom
+                  oK = 1
+                  xIt = 0
+                  foundRoom = 0
+                ENDIF
+      CASE 7: runHome = TRUE                                ;door is locked
+              return
+    ENDSWITCH
+    IF xIt = 5
+      getOut "Lost!"
+    ENDIF   
+      IF oK = 1
+        xIt = 0
+      ENDIF
+  Until oK = 1
+ENDPROC
+
+PROCEDURE m String dir, place
+  IF not runHome
+    mHomeTest dir, place
+  ENDIF
+ENDPROC
+
+PROCEDURE goHome
+    runHome = TRUE
+    String room, direction, tempRoom, tempPath, tempType, type
+    tempRoom = homeRoom
+    tempPath = homePath
+    tempType = storedType
+    homeRoom = ""
+    homePath = ""
+    storedType = ""
+    pop room, tempRoom
+    concat tempRoom, "arena,"
+    Integer onMain
+    onMain = FALSE
+    WHILE tempPath <> ""
+      PRINT tempRoom
+      pop direction, tempPath
+      pop room, tempRoom
+      SWITCH room
+        CASE "c"  : room = "cave"
+        CASE "m"  : room = "mountains"
+        CASE "f"  : room = "forest"
+        CASE "s"  : room = "swamp"
+      ENDSWITCH
+      pop type, tempType
+      IF type = "on" AND pVital < HURT
+        onMain = TRUE
+      ENDIF
+      IF type = "on" OR NOT onMain
+        mHomeTest direction, room
+      ENDIF
+    ENDWHILE
+    runHome = FALSE
+ENDPROC
+
+PROCEDURE tavern String type
+  mHomeTest "w","plaza"
+  mHomeTest "ne","tavern"
+  PUT "Buy ",type
+  DELAY 25
+  mHomeTest "sw","plaza"
+  mHomeTest "e","arena"
+ENDPROC
+
+PROCEDURE temple String item
+  PRINT "Going to temple"
+  mHomeTest "w","plaza"
+  DELAY 5
+  IF (MOTU OR KAMOTU OR GIMOTU) AND item = "Healing" AND maxMana > 0
+    REPEAT
+      healSpell
+      DELAY 50
+      readHealth
+    UNTIL pVital > WOUNDED
+    mHomeTest "e","arena"
+    return 
+  ENDIF
+  DELAY 5
+  mHomeTest "w","temple"
+  PUT "Buy ",item
+  PUT "Buy Restoring"
+  WAITFOR "afford healing",2
+  IF found
+    getOut "You're Broke!"
+  ENDIF
+  mHomeTest "e","plaza"
+  mHomeTest "e","arena"
+ENDPROC
+
+
+PROCEDURE ckStatus
+  Delay 5
+  PRINT "STATUS:",status
+  Delay 5
+  SWITCH status
+    CASE "HUNGRY"   : tavern "Meal"
+    CASE "THIRSTY"  : tavern "Drink"
+    CASE "POISONED" : temple "Curing"
+    otherwise       : IF pVital <= WOUNDED
+                        temple "Healing"
+                      ENDIF
+                      return
+  ENDSWITCH
+  readHealth
+  ckStatus
+ENDPROC
+
+PROCEDURE deposit Integer keepAmount
+  Integer crowns
+  crowns = 0
+  PUT "i"
+  WAITFOR "You are carrying"
+  getnum crowns, "g"
+  IF crowns > keepAmount
+    mHomeTest "w","plaza"
+    mHomeTest "s","plaza"
+    mHomeTest "s","magic"
+    DELAY 5
+    PUT "SELL ROD"
+    DELAY 5
+    PUT "SELL HORN"
+    DELAY 5
+    PUT "SELL WAND"
+    DELAY 5
+    mHomeTest "n","plaza"
+    mHomeTest "n","plaza"
+    mHomeTest "n","guild hall"
+    mHomeTest "d","vault"
+    PUT "deposit ", crowns - keepAmount
+    totDeposit = totDeposit + crowns - keepAmount
+    DELAY 5
+    mHomeTest "u","guild hall"
+    mHomeTest "s","plaza"
+    mHomeTest "e","arena"
+  ENDIF
+ENDPROC
+
+PROCEDURE preAdventure
+    readHealth
+    ckStatus
+    Deposit 40
+    WHILE pMana <> 100
+      mHomeTest "w","north plaza"
+      REPEAT
+        PRINT "Waiting for Mana.."
+        DELAY 100
+        readHealth
+      UNTIL pMana = 100
+      mHomeTest "e","arena"
+      monTest
+    ENDWHILE    
+    homePath = ""
+    homeRoom = ""
+    pathType = "on"
+    storedType = ""
+ENDPROC
+
+PROCEDURE readSpells
+  readExp startExp
+  curExp = startExp
+  CLEAR COM
+  String temp
+  Integer position
+  PUT "GROUP"
+  Waitfor "Your group currently"
+  get temp
+  STRPOS temp, "(", position 
+  SUBSTR temp, 1, position -1, me           ;get my name to cast healing spells
+  trim me
+  PRINT "I am:",me
+  DELAY 20
+  String spell
+  WHILE spells <> ""
+    PRINT spells
+    pop spell, spells
+    PUT "SPELLS"
+    WAITFOR spell,"do not have spell",1
+    SWITCH FOUND
+      CASE 1: 
+              SWITCH spell
+                CASE "motu"  : MOTU = TRUE
+                CASE "kamotu": KAMOTU = TRUE
+                case "gimotu": GIMOTU = TRUE
+                CASE "teka"  : TEKA = TRUE
+                CASE "dobuza": DOBUZA = TRUE
+                CASE "kamaza": KAMAZA = TRUE
+                CASE "kateka": KATEKA = TRUE
+                CASE "giteka": GITEKA = TRUE
+              ENDSWITCH
+      CASE 2: spells = "" 
+    ENDSWITCH   
+  ENDWHILE
+  m "e", "arena"
+ENDPROC
+
+PROCEDURE ogreCaves  
+  m "n","cave"
+  m "n","cave"
+  m "ne","cave"
+  pathType = "."
+  m "ne","cave"
+  m "n","cave"
+  m "ne","cave"
+  m "e","cave" 
+  m "ne","cave"
+  m "n","cave"                  ; 5 Wolves
+  m "s","cave"
+  m "sw","cave"
+  m "w","cave"
+  m "sw","cave"
+  m "s","cave"
+  m "sw","cave"
+  pathType = "on"
+  m "nw","cave"
+  m "nw","cave"
+  pathType = "."
+  m "w","cave"
+  m "nw","cave"                 ; 2 orcs, 2 wolves
+  m "nw","cave"
+  m "w","cave"
+  m "w","cave"                  ; 5 wolves
+  m "e","cave"
+  m "e","cave"
+  m "se","cave"
+  m "se","cave"
+  m "e","cave"
+  pathType = "on"
+  m "ne","cave"
+  m "n","cave"                  ; 3 wolves, 3 orc warriors
+ENDPROC
+
+PROCEDURE eDungeon
+  preAdventure
+  m "d","dungeon"
+  m "ne","cave"
+  m "e","cave"
+  m "se","cave"
+  m "e","cave"
+  m "se","cave"
+  m "ne","cave"
+  m "n","cave"
+  m "ne","cave"
+  m "n","huge cavern"           ; 2 Cyclops
+  readHealth
+  IF vital < 160
+    goHome
+    return;
+  ENDIF
+  m "ne","stairwell"
+  m "d","stairwell"             ; Troll  
+  m "s","cave"
+  m "sw","cave"
+  m "sw","cave"
+  m "sw","filthy cave"          ; Ogre
+  goHome
+ENDPROC
+
+PROCEDURE wDungeon
+  preAdventure
+  m "d","dungeon"  
+  m "w","cave"
+  m "w","cave"
+  m "w","cave"
+  m "sw","cave"
+  m "s","cave"
+  m "s","large cavern"          ; Minotaur
+  readHealth
+  IF vital < 170
+    goHome
+    return
+  ENDIF
+  m "se","cave"
+  m "se","spiked"
+  m "se","cave"
+  m "s", "filthy cavern"        ; Ogre
+  m "e","cave"
+  m "se","cave"
+  m "e","cave"
+  m "ne","cave"
+  m "ne","cave"
+  m "se","cave"
+  m "s","cave"
+  m "se","enormous cavern"      ; Cyclops
+  goHome
+ENDPROC
+
+
+PROCEDURE nwMountians
+  preAdventure
+  m "w","north plaza"
+  m "s","south plaza"
+  m "sw","town gates"
+  m "nw","mountains"
+  m "n","mountains"
+  m "nw","mountains"
+  m "n","mountains"
+  m "nw","mountains"
+  m "ne","mountains"
+  m "e","mountains"
+  m "ne","mountains"
+  m "n","cave"
+  m "n","cave"
+  m "nw","large cave"           ; Griffon
+  goHome  
+ENDPROC
+
+PROCEDURE eMountians
+  preAdventure
+  m "w","north plaza"
+  m "s","south plaza"
+  m "sw","town gates"
+  m "se","mountains"
+  m "e","mountains"
+  m "e","mountains"
+  m "ne","mountains"
+  m "e","mountains"
+  pathType = "off"
+  m "se","mountains"
+  m "se","mountains"  
+  m "sw","mountains"            ; Dead End
+  m "ne","mountains"
+  m "ne","mountains"
+  m "e","mountains"
+  m "se","mountains"
+  m "se","mountains"
+  m "ne","mountains"
+  m "ne","cave"
+  m "se","filthy cave"          ; Mountian Ape
+  m "nw","cave"
+  m "sw","mountains"
+  m "sw","mountains"
+  m "nw","mountains"
+  m "nw","mountains"
+  m "w","mountains"
+  m "sw","mountains"
+  m "nw","mountains"
+  m "nw","mountains"
+  pathType = "on"
+  m "ne","mountains"
+  m "ne","mountains" 
+  m "n","mountains"
+  m "nw","mountains"
+  m "ne","mountains"
+  m "ne","mountains"
+  m "n","mountains"
+  m "nw","cave"
+  pathType = "off"
+  m "nw","cave"
+  m "n","clean cave"            ; Ogre Mage
+  m "s","cave"
+  m "se","cave"
+  pathType = "on"
+  IF vital > 400 OR (GIMOTU AND vital > 200)
+    ogreCaves
+  ENDIF
+  goHome
+ENDPROC
+
+PROCEDURE swamp
+  m "e","swamp"
+  m "ne","swamp"
+  m "ne","swamp"
+  m "ne","swamp"
+  m "e","clearing"
+  m "ne","swamp"
+  m "ne","swamp"
+  m "e","swamp"
+  m "e","swamp"
+  m "e","swamp"
+  m "e","clearing"
+  m "e","swamp"
+  m "e","swamp"
+  m "ne","swamp"
+  m "ne","swamp"
+  m "ne","swamp"
+  m "n","clearing"
+  m "s","swamp"
+  m "se","swamp"
+  m "se","swamp"
+  m "e","swamp"
+  m "e","swamp"
+  m "s","clearing"
+  m "se","swamp"
+  m "se","swamp"
+  m "sw","swamp"
+  m "sw","swamp"
+  m "w","swamp"
+  m "sw","swamp"
+  m "s","clearing"
+ENDPROC
+PROCEDURE forest
+  preAdventure
+  m "w","north plaza"
+  m "s","south plaza"
+  m "sw","town gates"
+  m "sw","mountains"
+  m "s","mountains"
+  m "sw","mountains"
+  m "se","cave"
+  m "sw","cave"
+  m "sw","cave"
+  m "nw","cave"
+  m "w","cave"  
+  m "w","forest"
+  m "sw","forest"
+  m "s","forest"
+  m "s","forest"
+  m "sw","forest"
+  m "sw","forest"
+  m "se","forest"
+  m "sw","forest"  
+  m "se","forest"
+  m "se","forest"
+  m "se","forest"
+  m "se","forest"
+  m "sw","forest"
+  m "se","clearing"             ; Satyr
+  m "se","forest"
+  m "sw","forest"
+  m "sw","clearing"             ; Ogre Mage
+  m "se","forest"
+  m "ne","forest"
+  m "se","forest"
+  m "e","forest"
+  m "e","forest"
+  m "e","forest"
+  m "s","forest"
+  m "sw","forest"
+  m "sw","forest"
+  m "se","forest"
+  m "se","forest"
+  m "se","forest"
+  m "e","forest"
+  IF vital > 250
+    swamp
+  ENDIF
+  goHome
+ENDPROC
+
+procedure Main
+  String now
+  Integer shutdownSoon 
+  shutdownSoon = FALSE
+  IF (now > "04:50:00" AND now <= "05:20:00") OR  (now > "16:50:00" AND now <= "17:20:00")
+    shutdownSoon = TRUE
+  ENDIF 
+  PUT
+  WAITFOR "arena",1  
+  IF Found
+    readHealth
+    ckStatus
+    monTest
+    IF shutdownSoon OR maxVital < 200
+      preAdventure                                                    ; Get you to 100%
+      ring
+      monTest
+      IF shutdownSoon                                                 ; Stay close to home
+        return
+      ENDIF
+    ENDIF
+    IF maxVital > 90 AND  maxVital < 200
+      wDungeon
+      IF maxVital > 150
+        eDungeon
+        nwMountians
+      ENDIF
+    ELSEIF maxVital > 200
+      forest
+      eMountians
+      nwMountians
+    ENDIF
+  ENDIF
+  readExp curExp
+  DELAY 5
+  PRINT curExp, "!!!!"
+  DELAY 5
+ENDPROC
+;-----------------------------------------------------------------------------------------------
+;When "rang the great gong!","pl^M" 
+;When "Decimator                       Arch Magus","x^M^*"
+;When "Ravage                          Rogue","x^M^*"
+;When "in the act","^*"
+;When "attacked you with a dagger","^*"
+;When "attacked you with a staff","^*"
+;When "attacked you with a pyrehammer","^*"
+;When "attacked you with a rimeax","^*"
+;When "attacked you with a greatsword","^*"
+;When "attacked you with a levinblade","^*"
+;When "attacked you with a flail","^*"
+;When "attacked you with a warhammer","^*"
+;When "attacked you with a halberd","^*"
+;When "attacked you with a broadsword","^*"
+WhenIdle 120, "^*"
+;When "run away run away", "^*"                  
+;When "blast of frost at you from a rimeax","^*"
+;When "blast of flame at you from a pyrehammer","^*"
+;When "blast of lightning at you from a levinblade","^*"
+;When "Strider would like you to join","Join Strider^M"
+;When "as the final blow strikes your body","^*"
+;When "the damage was more than you could withstand","^*"
+;When "you are expecting",".taxes^M"
+;When "has issued a challenge",".accept^M"
+;When ".pocket",".share^M"
+;When "you're poisoned","^*"
+;When "Your torch just burned out.","light torch^M"
+;----------------------------------------------------------------------------------------------------
+
+readSpells;
+
+While Connected
+  Main
+EndWhile
